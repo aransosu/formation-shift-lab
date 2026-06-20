@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Formation Shift Lab 03 — Wave & Rotate</title>
+<style>
+  :root{
+    --bg:#0a0d12; --bg2:#0e131c; --panel:#141a26; --panel2:#1b2330;
+    --line:#243042; --muted:#7e8da0; --text:#e9eef6;
+    --core:#37e6cd; --danger:#ff5340; --charge:#ff9b32; --warn:#ffd45e;
+    --colsw:#37e6cd;   /* 열 교환(같은 행 후보) */
+    --rowsw:#a868ff;   /* 행 교환(같은 열 후보) */
+    --rot:#ff8a3b;     /* 2×2 회전(기어) — 교환과 다른 색 */
+    --warrior:#4d7cff; --rogue:#a868ff; --archer:#46d07a; --mage:#ff74cf; --priest:#ffd45e;
+    --boss:#d23a57;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{background:radial-gradient(120% 80% at 50% -10%, #16202f 0%, var(--bg) 60%);
+    color:var(--text); font-family:"Segoe UI",system-ui,-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+    min-height:100vh; display:flex; justify-content:center; align-items:flex-start;}
+  #frame{width:390px; max-width:100vw; min-height:100vh; display:flex; flex-direction:column; padding:7px 9px 9px; position:relative; overflow:hidden;}
+  @media (min-width:440px){
+    body{align-items:center; padding:16px 0;}
+    #frame{height:844px; min-height:0; border-radius:26px; border:1px solid var(--line);
+      box-shadow:0 30px 80px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.02); background:linear-gradient(180deg,#0c111a,#080b10);}
+  }
+
+  /* 상단 바 */
+  #topbar{display:flex; align-items:center; gap:7px; height:34px; flex:0 0 auto;}
+  #title{font-size:11px; letter-spacing:.13em; font-weight:700; color:var(--muted); text-transform:uppercase;}
+  #title b{color:var(--core);}
+  #topbar .sp{flex:1;}
+  .btn{appearance:none; border:1px solid var(--line); background:var(--panel); color:var(--text);
+    font-size:10.5px; font-weight:600; padding:5px 8px; border-radius:7px; cursor:pointer; letter-spacing:.03em;}
+  .btn:active{transform:translateY(1px);} .btn.on{border-color:var(--core); color:var(--core);}
+
+  /* 웨이브 상태바 */
+  #statusbar{flex:0 0 auto; display:flex; align-items:center; gap:8px; margin:5px 2px 4px; font-size:11px;}
+  #wave{font-variant-numeric:tabular-nums; font-weight:700; color:var(--text); letter-spacing:.03em;}
+  #wave span{color:var(--muted); font-weight:600; font-size:10px;}
+  #wavedirs{font-size:10px; color:#cdd6e2;}
+  #nextpill{margin-left:auto; font-size:10px; padding:3px 9px; border-radius:99px; border:1px solid var(--line); color:var(--muted); background:rgba(255,255,255,.02); white-space:nowrap;}
+  #nextpill.boss{border-color:var(--danger); color:#ffb9c4; animation:pulse 1s infinite;}
+
+  /* 보드 */
+  #board{flex:1 1 auto; position:relative; display:flex; align-items:center; justify-content:center; min-height:0; max-height:520px;}
+  #grid{width:100%; aspect-ratio:5/7; max-height:100%; display:grid; grid-template-columns:repeat(5,1fr); grid-template-rows:repeat(7,1fr); gap:5px; position:relative;}
+  #coreframe{grid-row:4/7; grid-column:2/5; pointer-events:none; border-radius:12px; z-index:3; position:relative;
+    box-shadow:0 0 0 1.5px rgba(55,230,205,.55), 0 0 22px rgba(55,230,205,.18) inset, 0 0 26px rgba(55,230,205,.12);}
+  #coreframe::before,#coreframe::after{content:""; position:absolute; width:12px; height:12px; border:2px solid var(--core); opacity:.9;}
+  #coreframe::before{left:-4px; top:-4px; border-right:none; border-bottom:none; border-radius:4px 0 0 0;}
+  #coreframe::after{right:-4px; bottom:-4px; border-left:none; border-top:none; border-radius:0 0 4px 0;}
+
+  /* 회전축 오버레이 (아군 3×3 위) */
+  #pivots{grid-row:4/7; grid-column:2/5; position:relative; pointer-events:none; z-index:8;}
+  .pivot{position:absolute; width:24px; height:24px; transform:translate(-50%,-50%); border-radius:50%;
+    background:radial-gradient(circle at 50% 40%, #2a2030, #14101a); border:1.5px solid var(--rot);
+    color:var(--rot); display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700;
+    cursor:pointer; pointer-events:auto; box-shadow:0 0 8px rgba(255,138,59,.35); opacity:.92;}
+  .pivot:active{transform:translate(-50%,-50%) scale(.92);}
+  .pivot.tl{left:33.33%; top:33.33%} .pivot.tr{left:66.67%; top:33.33%}
+  .pivot.bl{left:33.33%; top:66.67%} .pivot.br{left:66.67%; top:66.67%}
+  .pivot.sel{background:var(--rot); color:#1a1008; box-shadow:0 0 16px rgba(255,138,59,.8); opacity:1;}
+
+  /* 영웅 타일 */
+  .tile{position:relative; border-radius:10px; background:linear-gradient(180deg,#10151f,#0b0f16); border:1px solid var(--line);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer; overflow:hidden; z-index:4;
+    transition:border-color .12s, box-shadow .12s, transform .08s;}
+  .tile .role{position:absolute; top:3px; left:4px; font-size:8px; font-weight:800; opacity:.85;}
+  .tile.job-warrior{--c:var(--warrior);} .tile.job-rogue{--c:var(--rogue);} .tile.job-archer{--c:var(--archer);}
+  .tile.job-mage{--c:var(--mage);} .tile.job-priest{--c:var(--priest);}
+  .tile .role{color:var(--c);}
+  .star{position:absolute; top:3px; right:4px; font-size:8px; font-weight:800; color:var(--warn); display:none; z-index:7;}
+  .tile.s2 .star{display:block;}
+  .tile.sel{border-color:var(--core); box-shadow:0 0 0 2px var(--core), 0 0 16px rgba(55,230,205,.5); transform:scale(1.03); z-index:6;}
+  .tile.cand-col{border-color:var(--colsw); box-shadow:0 0 0 1px var(--colsw);}
+  .tile.cand-col::after{content:"열"; position:absolute; bottom:14px; right:4px; font-size:8px; font-weight:800; color:var(--colsw);}
+  .tile.cand-row{border-color:var(--rowsw); box-shadow:0 0 0 1px var(--rowsw);}
+  .tile.cand-row::after{content:"행"; position:absolute; bottom:14px; right:4px; font-size:8px; font-weight:800; color:var(--rowsw);}
+  .tile.rotblock{border-color:var(--rot); box-shadow:0 0 0 2px var(--rot), 0 0 14px rgba(255,138,59,.5);}
+  .tile.cardtarget{border-color:var(--warn); box-shadow:0 0 0 2px var(--warn), 0 0 14px rgba(255,212,94,.5);}
+  .tile.targeted{border-color:var(--danger); box-shadow:0 0 0 2px var(--danger), 0 0 14px rgba(255,83,64,.55);}
+  .tile.targeted .cros{opacity:1;}
+  .cros{position:absolute; top:3px; right:3px; width:12px; height:12px; opacity:0; transition:opacity .1s; z-index:8;}
+  .cros::before,.cros::after{content:""; position:absolute; background:var(--danger);}
+  .cros::before{left:5px; top:0; width:2px; height:12px;} .cros::after{top:5px; left:0; width:12px; height:2px;}
+  .tile.bonus{box-shadow:0 0 0 1px var(--rogue), 0 0 16px rgba(168,104,255,.6);}
+  .tile.flash{animation:flash .42s ease;}
+  @keyframes flash{0%{background:rgba(55,230,205,.35);}100%{background:linear-gradient(180deg,#10151f,#0b0f16);}}
+  .tile.rflash{animation:rflash .45s ease;}
+  @keyframes rflash{0%{background:rgba(255,138,59,.4);}100%{background:linear-gradient(180deg,#10151f,#0b0f16);}}
+  .tile.shake{animation:shake .25s;}
+  @keyframes shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-3px);}75%{transform:translateX(3px);}}
+  .tile.down{filter:grayscale(1) brightness(.5);}
+  .tile.down .ava{opacity:.35;} .tile.down .role{opacity:.4;}
+  .downmark{position:absolute; inset:0; display:none; align-items:center; justify-content:center; z-index:7; color:#6b7686; font-weight:800; font-size:18px;}
+  .tile.down .downmark{display:flex;}
+  .badge{position:absolute; bottom:13px; font-size:8px; font-weight:800; padding:1px 4px; border-radius:4px; display:none; z-index:7;}
+  .tile.notarget .badge{display:block; color:#0a0d12; background:#5d6a7c;}
+  .tile.cango .ava{filter:drop-shadow(0 0 5px var(--c));}
+
+  .hpbar{position:absolute; left:5px; right:5px; bottom:7px; height:3px; border-radius:2px; background:#2a3342; overflow:hidden; z-index:5;}
+  .hpfill{height:100%; width:100%; background:linear-gradient(90deg,#46d07a,#9be36a); transition:width .12s;}
+  .hpfill.low{background:linear-gradient(90deg,#ff6a4d,#ffb547);}
+  .gauge{position:absolute; left:5px; right:5px; bottom:3px; height:2px; border-radius:2px; background:#222a37; overflow:hidden; z-index:5;}
+  .gfill{height:100%; width:0%; background:linear-gradient(90deg,#5fa8ff,#37e6cd); transition:width .08s linear;}
+  .gfill.full{background:var(--core);}
+
+  /* 아바타 */
+  .ava{position:relative; width:58%; aspect-ratio:1/1; max-width:38px; margin-bottom:6px;}
+  .ava i{position:absolute; display:block;}
+  .ava-warrior .shield{inset:6% 14%; background:linear-gradient(180deg,#7fa0ff,#3a63d8); clip-path:polygon(50% 0,100% 16%,100% 56%,50% 100%,0 56%,0 16%); box-shadow:inset 0 0 6px rgba(255,255,255,.3);}
+  .ava-warrior .cross-v,.ava-warrior .cross-h{background:rgba(255,255,255,.85);}
+  .ava-warrior .cross-v{left:48%; top:18%; width:6%; height:56%;} .ava-warrior .cross-h{left:24%; top:38%; width:52%; height:6%;}
+  .ava-rogue .hood{inset:8% 18% 18%; background:linear-gradient(180deg,#7b48c9,#3c2266); clip-path:polygon(50% 0,100% 70%,72% 100%,28% 100%,0 70%);}
+  .ava-rogue .face{left:36%; top:34%; width:28%; height:26%; border-radius:50%; background:#1a1024;}
+  .ava-rogue .dagger{left:60%; top:8%; width:6%; height:62%; background:linear-gradient(#dfe6f2,#9aa6b8); transform:rotate(28deg); transform-origin:bottom; border-radius:2px;}
+  .ava-archer .bow{inset:8% 22% 8% 26%; border:3px solid #5fd97a; border-left:none; border-radius:0 60% 60% 0/0 50% 50% 0; background:transparent;}
+  .ava-archer .string{left:30%; top:10%; width:2px; height:80%; background:rgba(255,255,255,.5);}
+  .ava-archer .arrow{left:24%; top:48%; width:56%; height:3px; background:#e9eef6;}
+  .ava-archer .arrow::after{content:""; position:absolute; right:-1px; top:-3px; border-left:7px solid #e9eef6; border-top:4px solid transparent; border-bottom:4px solid transparent;}
+  .ava-mage .hat{left:18%; top:2%; width:64%; height:54%; background:linear-gradient(180deg,#ff95dd,#b03f8e); clip-path:polygon(50% 0,100% 100%,0 100%);}
+  .ava-mage .brim{left:10%; top:50%; width:80%; height:8%; border-radius:4px; background:#7a2a60;}
+  .ava-mage .orb{left:34%; top:58%; width:32%; height:32%; border-radius:50%; background:radial-gradient(circle at 35% 30%,#fff,#ff74cf 60%,#8a2f6e); box-shadow:0 0 8px rgba(255,116,207,.7);}
+  .ava-priest .halo{left:24%; top:6%; width:52%; height:52%; border-radius:50%; border:3px solid #ffd45e; box-shadow:0 0 8px rgba(255,212,94,.6);}
+  .ava-priest .robe{left:30%; top:30%; width:40%; height:62%; border-radius:40% 40% 8% 8%; background:linear-gradient(180deg,#fff6d8,#d9b955);}
+  .ava-priest .cv,.ava-priest .ch{background:#7a5a12;}
+  .ava-priest .cv{left:48%; top:42%; width:5%; height:30%;} .ava-priest .ch{left:40%; top:50%; width:20%; height:5%;}
+
+  /* 적 영역 */
+  .area{position:relative; border-radius:10px; overflow:hidden; z-index:2; display:flex; flex-direction:column; align-items:center; justify-content:center; border:1px solid var(--line); background:linear-gradient(180deg,#161019,#0c0a0f);}
+  .area .ehp{position:absolute; left:6px; right:6px; top:6px; height:4px; border-radius:2px; background:#3a2530; overflow:hidden; z-index:3;}
+  .area .ehpf{height:100%; width:100%; background:linear-gradient(90deg,#ff5a6a,#ff9b32); transition:width .15s;}
+  .area .eg{position:absolute; left:6px; right:6px; bottom:6px; height:4px; border-radius:2px; background:#2a2230; overflow:hidden; z-index:3;}
+  .area .egf{height:100%; width:0%; background:linear-gradient(90deg,#ffd76a,var(--charge)); transition:width .08s linear;}
+  .area .elabel{position:absolute; top:12px; font-size:9px; letter-spacing:.05em; color:var(--muted); z-index:3;}
+  .area.charging{border-color:var(--danger);}
+  .area.charging::before{content:""; position:absolute; inset:0; background:radial-gradient(circle, rgba(255,83,64,.22), transparent 70%); animation:pulse 1s infinite;}
+  .area.preview{box-shadow:0 0 0 2px var(--danger), 0 0 26px rgba(255,83,64,.4) inset;}
+  @keyframes pulse{0%,100%{opacity:.4;}50%{opacity:.9;}}
+  .area.empty{border-style:dashed; border-color:#1c2532; background:repeating-linear-gradient(45deg,#0c1018 0 7px,#0a0d14 7px 14px);}
+  .area.empty .facewrap,.area.empty .ehp,.area.empty .eg,.area.empty .elabel{opacity:.12;}
+  .area.dead{filter:grayscale(1) brightness(.42); border-style:dashed;}
+
+  /* 상단 슬롯(상단몹 → 보스) */
+  #area-top{grid-row:1/4; grid-column:2/5;}
+  #area-top .elabel{top:8px;}
+  .topmob{position:relative; width:60%; aspect-ratio:2.2/1; display:flex; gap:8%; align-items:center; justify-content:center;}
+  .topmob .m{position:relative; width:22%; aspect-ratio:1/1;}
+  .topmob .m::before{content:""; position:absolute; inset:0; background:radial-gradient(circle at 50% 35%,#8d5a7a,#3a2233); border-radius:46% 46% 50% 50%;}
+  .topmob .m::after{content:""; position:absolute; left:50%; top:38%; transform:translateX(-50%); width:46%; height:18%; background:var(--danger); border-radius:50%; box-shadow:0 0 6px var(--danger);}
+  .bossface{position:relative; width:44%; aspect-ratio:1.4/1; max-width:140px;}
+  .bossface .head{position:absolute; inset:18% 6% 6%; border-radius:38% 38% 30% 30%; background:radial-gradient(circle at 50% 30%,#e0566f,#8e1e35 70%); box-shadow:inset 0 -6px 14px rgba(0,0,0,.4);}
+  .bossface .horn{position:absolute; top:2%; width:0; height:0; border-left:11px solid transparent; border-right:11px solid transparent; border-bottom:28px solid #b3304a;}
+  .bossface .horn.l{left:14%; transform:rotate(-22deg);} .bossface .horn.r{right:14%; transform:rotate(22deg);}
+  .bossface .eye{position:absolute; top:42%; width:13%; aspect-ratio:1/1; border-radius:50%; background:#ffe14d; box-shadow:0 0 8px #ffd400;}
+  .bossface .eye.l{left:30%;} .bossface .eye.r{right:30%;}
+  .bossface .eye::after{content:""; position:absolute; inset:32% 38%; background:#3a0f15; border-radius:50%;}
+  .bossface .mouth{position:absolute; bottom:18%; left:32%; width:36%; height:8%; background:#2a0a10; clip-path:polygon(0 0,12% 100%,25% 0,38% 100%,50% 0,62% 100%,75% 0,88% 100%,100% 0);}
+  #area-top.bossmode{border-color:var(--danger);}
+  #area-top.bossmode .elabel{color:#ffb9c4; font-weight:700;}
+  #area-top.charging.bossmode .bossface .head{background:radial-gradient(circle at 50% 30%,#ff6f86,#c02038 70%); box-shadow:0 0 30px rgba(255,60,80,.6), inset 0 -6px 14px rgba(0,0,0,.4);}
+
+  /* 측면/하단 몹 */
+  #area-left{grid-row:4/7; grid-column:1/2;} #area-right{grid-row:4/7; grid-column:5/6;} #area-bottom{grid-row:7/8; grid-column:2/5;}
+  .fang{position:relative; width:58%; aspect-ratio:1/1; max-width:32px;}
+  .fang::before{content:""; position:absolute; inset:14%; background:radial-gradient(circle at 50% 35%,#b56,#5b2230); border-radius:46% 46% 50% 50%;}
+  .fang .eye2{position:absolute; width:18%; aspect-ratio:1/1; background:var(--danger); border-radius:50%; box-shadow:0 0 6px var(--danger); top:38%;}
+  .fang .eye2.a{left:32%;} .fang .eye2.b{right:32%;}
+  .fang .chev{position:absolute; width:0;height:0;}
+  #area-left .chev{right:2%; top:44%; border-top:6px solid transparent; border-bottom:6px solid transparent; border-left:9px solid var(--danger);}
+  #area-right .chev{left:2%; top:44%; border-top:6px solid transparent; border-bottom:6px solid transparent; border-right:9px solid var(--danger);}
+  #area-bottom .chev{top:2%; left:46%; border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:9px solid var(--danger);}
+
+  /* 플로팅 */
+  .floater{position:absolute; left:50%; top:40%; transform:translateX(-50%); font-weight:800; font-size:13px; pointer-events:none; z-index:20; animation:float .8s ease-out forwards; text-shadow:0 1px 3px #000;}
+  .floater.dmg{color:#ff7a6a;} .floater.heal{color:#7df0a0;} .floater.gold{color:var(--warn);} .floater.big{font-size:16px;}
+  @keyframes float{0%{opacity:0; transform:translate(-50%,4px);}15%{opacity:1;}100%{opacity:0; transform:translate(-50%,-22px);}}
+
+  /* 보스 등장 배너 */
+  #bossbanner{position:absolute; left:0; right:0; top:30%; text-align:center; z-index:30; pointer-events:none; display:none;}
+  #bossbanner.show{display:block; animation:bossin 1.4s ease forwards;}
+  #bossbanner span{font-size:26px; font-weight:800; letter-spacing:.12em; color:#ff6f86; text-shadow:0 0 18px rgba(255,60,80,.8);}
+  @keyframes bossin{0%{opacity:0; transform:scale(.7);}20%{opacity:1; transform:scale(1.05);}80%{opacity:1;}100%{opacity:0; transform:scale(1);}}
+
+  /* 2×2 원탭 회전 — 쿨타임/스핀 */
+  .pivot.cooldown{opacity:.35; border-color:#5a4634; color:#7c6446; box-shadow:none;}
+  .pivot.cooldown::after{content:""; position:absolute; inset:-3px; border-radius:50%; border:2px solid rgba(255,138,59,.35); border-top-color:transparent; animation:cdspin 1s linear;}
+  @keyframes cdspin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+  .pivot.spin{animation:spin360 .5s ease;}
+  @keyframes spin360{from{transform:translate(-50%,-50%) rotate(0)}to{transform:translate(-50%,-50%) rotate(360deg)}}
+
+  /* 하단 모집 서랍 */
+  #drawer{flex:0 0 auto; margin-top:6px; border:1px solid var(--line); border-radius:10px; background:linear-gradient(180deg,#10151e,#0c0f16); padding:6px 8px;}
+  #drawer .dhead{display:flex; align-items:center; gap:6px; font-size:10px; color:var(--muted); margin-bottom:5px;}
+  #drawer .dhead b{color:var(--warn); letter-spacing:.04em;}
+  #drawer .dhint{margin-left:auto; font-size:9px; color:#5f6e82;}
+  #cards{display:flex; gap:6px;}
+  .cardslot{flex:1; height:46px; border-radius:8px; border:1px dashed #2c3950; background:rgba(255,255,255,.015); display:flex; align-items:center; justify-content:center; position:relative; cursor:default;}
+  .cardslot.empty::after{content:"빈 슬롯"; font-size:9px; color:#46566c;}
+  .card{cursor:pointer; border-style:solid; border-color:var(--line); background:linear-gradient(180deg,#171d29,#0e1019);}
+  .card .cava{position:relative; width:26px; height:26px; margin-right:6px;}
+  .card .cname{font-size:11px; font-weight:700;}
+  .card.job-warrior .cname{color:var(--warrior);} .card.job-rogue .cname{color:var(--rogue);} .card.job-archer .cname{color:var(--archer);}
+  .card.job-mage .cname{color:var(--mage);} .card.job-priest .cname{color:var(--priest);}
+  .card.sel{border-color:var(--warn); box-shadow:0 0 0 2px var(--warn), 0 0 12px rgba(255,212,94,.4);}
+  .card .inner{display:flex; align-items:center;}
+
+  /* 로그/안내/디버그 */
+  #bottom{flex:0 0 auto; margin-top:6px;}
+  #log{font-size:10px; color:#aeb9c8; line-height:1.5; height:28px; overflow:hidden; background:rgba(255,255,255,.02); border:1px solid var(--line); border-radius:8px; padding:3px 8px;}
+  #log b{color:var(--core);}
+  #hint{font-size:9.5px; color:var(--muted); margin:4px 2px 0; line-height:1.4;}
+  #hint .k{color:#cdd6e2;} #hint .g{color:var(--rot);}
+  #debugToggle{margin-top:5px;}
+  #debug{display:none; margin-top:5px; font-size:9.5px; color:#9fb0c4; background:#0c1118; border:1px solid var(--line); border-radius:8px; padding:6px 8px; line-height:1.55; white-space:pre-wrap; font-family:ui-monospace,Menlo,Consolas,monospace;}
+  #debug.show{display:block;}
+
+  /* 결과 오버레이 */
+  #overlay{position:absolute; inset:0; z-index:40; display:none; align-items:center; justify-content:center; background:rgba(6,9,13,.82); backdrop-filter:blur(2px); flex-direction:column; gap:12px; text-align:center;}
+  #overlay.show{display:flex;}
+  #overlay .res{font-size:30px; font-weight:800; letter-spacing:.04em;}
+  #overlay .res.win{color:var(--core);} #overlay .res.lose{color:var(--danger);}
+  #overlay .sub{font-size:12px; color:var(--muted); max-width:300px; line-height:1.6;}
+</style>
+</head>
+<body>
+<div id="frame">
+  <div id="topbar">
+    <div id="title">FORMATION SHIFT <b>04</b> · WAVE</div>
+    <div class="sp"></div>
+    <button class="btn" id="btnSpeed">1×</button>
+    <button class="btn" id="btnPause">일시정지</button>
+    <button class="btn" id="btnRestart">재시작</button>
+  </div>
+
+  <div id="statusbar">
+    <div id="wave"><span>WAVE</span> 1/10</div>
+    <div id="wavedirs">상단</div>
+    <div id="nextpill">웨이브 진행</div>
+  </div>
+
+  <div id="board">
+    <div id="grid"><!-- JS가 채움 --></div>
+    <div id="bossbanner"><span>★ BOSS ★</span></div>
+  </div>
+
+  <div id="drawer">
+    <div class="dhead"><b>모집 서랍</b> · 웨이브 처치 시 카드<div class="dhint">카드 탭 → 기절 칸 투입 / 같은 직업 ★업</div></div>
+    <div id="cards">
+      <div class="cardslot empty"></div><div class="cardslot empty"></div><div class="cardslot empty"></div>
+    </div>
+  </div>
+
+  <div id="bottom">
+    <div id="log"></div>
+    <div id="hint">영웅 탭 → <span class="k">같은 행/열 영웅</span> = 두 줄 교환. <span class="g">기어(↻)</span> 탭 → 2×2를 시계방향으로 즉시 회전(1초 쿨타임). 이동한 영웅 게이지 0.</div>
+    <button class="btn" id="debugToggle">디버그 ▾</button>
+    <div id="debug"></div>
+  </div>
+
+  <div id="overlay">
+    <div class="res" id="ovRes"></div>
+    <div class="sub" id="ovSub"></div>
+    <button class="btn" id="ovBtn" style="font-size:13px;padding:9px 16px;">다시 시작</button>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   Formation Shift Lab 04 — One Tap Rotate Feel · ENGINE (DOM-free)
+   2×2 회전 = 회전축 원탭 → 즉시 시계방향 1회전 (방향 선택 제거)
+   + 1초 회전 쿨타임. 행/열 교환·웨이브·서랍은 Lab 03 그대로.
+   시드 RNG. 이 파일 그대로 HTML에 임베드 → 시뮬 == 출하.
+   ===================================================================== */
+(function (root) {
+  'use strict';
+
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  var CFG = {
+    HP: { warrior: 130, rogue: 78, archer: 58, mage: 66, priest: 82 },
+    PERIOD: { warrior: 3.0, rogue: 2.5, archer: 2.7, mage: 5.0, priest: 3.0 },
+    WAR_DMG: 15, ROG_DMG: 8, ROG_BONUS: 8, ARC_DMG: 11, MAG_DMG: 30,
+    HEAL: 24, HEAL_WEAK: 12, WAR_TAKE: 0.5,
+    STAR2_MULT: 1.25, NEW_HERO_HP: 0.7,
+    // 웨이브 수치
+    WAVE_HP: function (n) { return n <= 3 ? 75 : (n <= 7 ? 90 : 105); },
+    WAVE_DMG: function (n) { return n >= 8 ? 17 : 14; },
+    WAVE_PERIOD: function (n) { return n >= 8 ? 2.8 : 3.0; },
+    WAVE_COUNT: function (n) { return n <= 3 ? 1 : 2; },
+    TOTAL_WAVES: 10,
+    BOSS_HP: 300, BOSS_DMG: 22, BOSS_PERIOD: 3.2,
+    SHIFT_LOCK: 0.4,
+    ROT_COOLDOWN: 1.0,
+    MAX_TIME: 260
+  };
+
+  // 권장 편성: 전사2 도적2 궁수2 마법1 사제2
+  var DEFAULT_LAYOUT = [
+    ['warrior', 'archer', 'rogue'],
+    ['mage', 'priest', 'archer'],
+    ['warrior', 'priest', 'rogue']
+  ];
+  var JOBS = ['warrior', 'rogue', 'archer', 'mage', 'priest'];
+  var DIRS = ['top', 'right', 'bottom', 'left'];
+
+  // 2×2 회전 블록: 각 [tl, tr, bl, br] = [r,c]
+  var ROT_BLOCKS = {
+    TL: [[0, 0], [0, 1], [1, 0], [1, 1]],
+    TR: [[0, 1], [0, 2], [1, 1], [1, 2]],
+    BL: [[1, 0], [1, 1], [2, 0], [2, 1]],
+    BR: [[1, 1], [1, 2], [2, 1], [2, 2]]
+  };
+  var BLOCK_KEYS = ['TL', 'TR', 'BL', 'BR'];
+
+  function jobName(j) { return { warrior: '전사', rogue: '도적', archer: '궁수', mage: '마법사', priest: '사제' }[j] || j; }
+  function dirName(k) { return { top: '상단', right: '우측', bottom: '하단', left: '좌측', boss: '보스' }[k] || k; }
+
+  function createGame(opts) {
+    opts = opts || {};
+    var rnd = mulberry32(opts.seed != null ? opts.seed : 1234);
+    var layout = opts.layout || DEFAULT_LAYOUT;
+
+    var heroes = {};
+    var grid = [[null, null, null], [null, null, null], [null, null, null]];
+    var nextId = 1;
+    function mkHero(job, star) {
+      var base = CFG.HP[job];
+      var mx = star === 2 ? Math.round(base * CFG.STAR2_MULT) : base;
+      return { id: 'h' + (nextId++), job: job, star: star || 1, maxHp: mx, hp: mx,
+        gauge: 0, rate: 100 / CFG.PERIOD[job], alive: true, shiftBonus: false, row: 0, col: 0, fx: null };
+    }
+    for (var r = 0; r < 3; r++) for (var c = 0; c < 3; c++) {
+      var h = mkHero(layout[r][c], 1); h.row = r; h.col = c; heroes[h.id] = h; grid[r][c] = h.id;
+    }
+    for (var k in heroes) heroes[k].gauge = Math.floor(rnd() * 35);
+
+    // 방향 영역(웨이브마다 재사용) + 보스
+    var enemies = {};
+    DIRS.forEach(function (key) {
+      enemies[key] = { key: key, maxHp: 0, hp: 0, gauge: 0, rate: 0, dmg: 0,
+        alive: false, active: false, enhanced: false, targetId: null };
+    });
+    enemies.boss = { key: 'boss', maxHp: CFG.BOSS_HP, hp: CFG.BOSS_HP, gauge: 0,
+      rate: 100 / CFG.BOSS_PERIOD, dmg: CFG.BOSS_DMG, alive: true, active: false, spawned: false, targetId: null };
+
+    var state = {
+      heroes: heroes, grid: grid, enemies: enemies,
+      time: 0, inputLock: 0, rotLock: 0, over: null,
+      phase: 'wave', waveNum: 0, activeDirs: [], lastDirs: [],
+      drawer: [], events: [],
+      stats: {
+        rowSwaps: 0, colSwaps: 0, rotations: 0,
+        rotCooldownBlocked: 0, rotGaugeLost: 0,
+        priestDamage: 0, priestHeal: 0, meleeNoTarget: 0, mageGaugeLost: 0,
+        wavesKilled: 0, deadHeroes: [],
+        cardsAcquired: 0, cardsUsed: 0, starUps: 0, bossSpawnTime: null
+      }
+    };
+
+    function syncPositions() {
+      for (var r = 0; r < 3; r++) for (var c = 0; c < 3; c++) { var id = grid[r][c]; if (id) { heroes[id].row = r; heroes[id].col = c; } }
+    }
+    syncPositions();
+
+    function starMult(h) { return h.star === 2 ? CFG.STAR2_MULT : 1; }
+    function livingHeroes() { var o = []; for (var id in heroes) if (heroes[id].alive) o.push(heroes[id]); return o; }
+    function allDown() { return livingHeroes().length === 0; }
+    function dirArea(dir) {
+      if (dir === 'top') {
+        if (enemies.boss.active && enemies.boss.alive) return enemies.boss;
+        if (enemies.top.active && enemies.top.alive) return enemies.top;
+        return null;
+      }
+      var e = enemies[dir]; return (e.active && e.alive) ? e : null;
+    }
+    function activeAliveAreas() {
+      var o = []; ['boss', 'top', 'right', 'bottom', 'left'].forEach(function (key) { var e = enemies[key]; if (e.active && e.alive) o.push(e); }); return o;
+    }
+    function adjacentDirs(h) { var d = []; if (h.row === 0) d.push('top'); if (h.row === 2) d.push('bottom'); if (h.col === 0) d.push('left'); if (h.col === 2) d.push('right'); return d; }
+    function adjacentAreas(h) { return adjacentDirs(h).map(dirArea).filter(function (e) { return e; }); }
+
+    function pushEvent(ev) { ev.t = state.time; state.events.push(ev); if (state.events.length > 80) state.events.shift(); }
+    function logLine(msg) { pushEvent({ type: 'log', msg: msg }); }
+
+    function lowestRatio(list) {
+      var best = null;
+      list.forEach(function (h) {
+        if (!best) { best = h; return; }
+        var rh = h.hp / h.maxHp, rb = best.hp / best.maxHp;
+        if (rh < rb - 1e-9) best = h;
+        else if (Math.abs(rh - rb) <= 1e-9) { if (h.hp < best.hp || (h.hp === best.hp && h.id < best.id)) best = h; }
+      });
+      return best;
+    }
+    function lowestHpArea(list) {
+      var prio = { boss: 0, top: 1, left: 2, right: 3, bottom: 4 }, best = null;
+      list.forEach(function (e) {
+        if (!best) { best = e; return; }
+        if (e.hp < best.hp - 1e-9) best = e;
+        else if (Math.abs(e.hp - best.hp) <= 1e-9 && prio[e.key] < prio[best.key]) best = e;
+      });
+      return best;
+    }
+
+    function awardCard() {
+      if (state.drawer.length >= 3) return;
+      var job = JOBS[Math.floor(rnd() * JOBS.length)];
+      state.drawer.push({ job: job }); state.stats.cardsAcquired++;
+      pushEvent({ type: 'card', job: job }); logLine(jobName(job) + ' 카드 획득');
+    }
+
+    // ----- 웨이브 -----
+    function spawnWave(n) {
+      state.waveNum = n; state.phase = 'wave';
+      var hp = CFG.WAVE_HP(n), dmg = CFG.WAVE_DMG(n), per = CFG.WAVE_PERIOD(n), cnt = CFG.WAVE_COUNT(n);
+      // 방향 선택(단순 랜덤 + 직전 웨이브와 완전 동일 조합 회피)
+      var chosen = null;
+      for (var tries = 0; tries < 5; tries++) {
+        var pool = DIRS.slice(), pick = [];
+        for (var i = 0; i < cnt; i++) { var idx = Math.floor(rnd() * pool.length); pick.push(pool.splice(idx, 1)[0]); }
+        pick.sort();
+        if (state.lastDirs.length !== pick.length || pick.join() !== state.lastDirs.join()) { chosen = pick; break; }
+        chosen = pick;
+      }
+      state.activeDirs = chosen.slice(); state.lastDirs = chosen.slice();
+      DIRS.forEach(function (key) {
+        var e = enemies[key];
+        if (chosen.indexOf(key) >= 0) {
+          e.active = true; e.alive = true; e.maxHp = hp; e.hp = hp; e.dmg = dmg;
+          e.rate = 100 / per; e.gauge = 0; e.enhanced = (n >= 8); e.targetId = null;
+        } else { e.active = false; e.alive = false; }
+      });
+      logLine('웨이브 ' + n + '/' + CFG.TOTAL_WAVES + ' — ' + chosen.map(dirName).join('·') + (n >= 8 ? ' (강화)' : ''));
+      pushEvent({ type: 'wave', n: n, dirs: chosen.slice(), enhanced: n >= 8 });
+    }
+    function waveCleared() {
+      state.stats.wavesKilled++;
+      awardCard();
+      if (state.waveNum < CFG.TOTAL_WAVES) { spawnWave(state.waveNum + 1); }
+      else {
+        state.phase = 'boss';
+        var b = enemies.boss; b.active = true; b.alive = true; b.hp = b.maxHp; b.gauge = 0; b.spawned = true;
+        state.stats.bossSpawnTime = +state.time.toFixed(1);
+        logLine('★ 보스 등장 ★'); pushEvent({ type: 'bossSpawn' });
+      }
+    }
+
+    function damageArea(area, dmg) {
+      area.hp -= dmg; pushEvent({ type: 'dmgArea', key: area.key, dmg: Math.round(dmg) });
+      if (area.hp <= 0 && area.alive) {
+        area.hp = 0; area.alive = false; area.active = false;
+        logLine(dirName(area.key) + ' 격파'); pushEvent({ type: 'areaDown', key: area.key });
+        if (area.key !== 'boss' && state.phase === 'wave') {
+          var allDead = state.activeDirs.every(function (d) { return !enemies[d].alive; });
+          if (allDead) waveCleared();
+        }
+      }
+    }
+    function damageHero(h, dmg, srcKey) {
+      var applied = dmg; if (h.job === 'warrior') applied = Math.round(dmg * CFG.WAR_TAKE);
+      h.hp -= applied;
+      if (h.job === 'priest') state.stats.priestDamage += applied;
+      pushEvent({ type: 'dmgHero', id: h.id, dmg: applied, src: srcKey });
+      if (h.hp <= 0) {
+        h.hp = 0; h.alive = false; h.gauge = 0;
+        state.stats.deadHeroes.push(h.job + (h.star === 2 ? '★2' : '') + '(' + h.id + ')');
+        logLine(jobName(h.job) + ' 기절'); pushEvent({ type: 'down', id: h.id });
+      }
+    }
+    function healHero(h, amt) { var b = h.hp; h.hp = Math.min(h.maxHp, h.hp + amt); var g = h.hp - b; pushEvent({ type: 'heal', id: h.id, amt: Math.round(g) }); return g; }
+
+    function neighbors8(h) {
+      var o = [];
+      for (var dr = -1; dr <= 1; dr++) for (var dc = -1; dc <= 1; dc++) {
+        if (!dr && !dc) continue; var nr = h.row + dr, nc = h.col + dc;
+        if (nr < 0 || nr > 2 || nc < 0 || nc > 2) continue; var id = grid[nr][nc]; if (id) o.push(heroes[id]);
+      }
+      return o;
+    }
+
+    function heroAct(h) {
+      var m = starMult(h);
+      if (h.job === 'warrior' || h.job === 'rogue') {
+        var areas = adjacentAreas(h);
+        if (!areas.length) { state.stats.meleeNoTarget++; h.gauge = 0; h.fx = { kind: 'noTarget', until: state.time + 0.5 }; pushEvent({ type: 'noTarget', id: h.id }); return; }
+        var tgt = lowestHpArea(areas), dmg = h.job === 'warrior' ? CFG.WAR_DMG : CFG.ROG_DMG;
+        if (h.job === 'rogue') { if (h.shiftBonus) dmg += CFG.ROG_BONUS; h.shiftBonus = false; }
+        damageArea(tgt, dmg * m); h.fx = { kind: 'melee', target: tgt.key, until: state.time + 0.35 }; h.gauge = 0; return;
+      }
+      if (h.job === 'archer') {
+        var dir = adjacentAreas(h); var t = dir.length ? lowestHpArea(dir) : lowestHpArea(activeAliveAreas());
+        if (t) { damageArea(t, CFG.ARC_DMG * m); h.fx = { kind: 'shot', target: t.key, until: state.time + 0.3 }; } h.gauge = 0; return;
+      }
+      if (h.job === 'mage') {
+        var aa = activeAliveAreas(); var bossA = enemies.boss.active && enemies.boss.alive ? enemies.boss : null;
+        var mt = bossA || lowestHpArea(aa);
+        if (mt) { damageArea(mt, CFG.MAG_DMG * m); h.fx = { kind: 'blast', target: mt.key, until: state.time + 0.4 }; } h.gauge = 0; return;
+      }
+      if (h.job === 'priest') {
+        var nb = neighbors8(h).filter(function (n) { return n.alive; });
+        var inj = nb.filter(function (n) { return n.hp < n.maxHp; });
+        if (inj.length) { var t1 = lowestRatio(inj); state.stats.priestHeal += healHero(t1, CFG.HEAL * m); h.fx = { kind: 'heal', target: t1.id, until: state.time + 0.4 }; }
+        else if (h.hp < h.maxHp) { state.stats.priestHeal += healHero(h, CFG.HEAL * m); h.fx = { kind: 'heal', target: h.id, until: state.time + 0.4 }; }
+        else { var far = livingHeroes().filter(function (n) { return n.hp < n.maxHp; }); if (far.length) { var t2 = lowestRatio(far); state.stats.priestHeal += healHero(t2, CFG.HEAL_WEAK * m); h.fx = { kind: 'heal', target: t2.id, until: state.time + 0.4 }; } }
+        h.gauge = 0; return;
+      }
+    }
+
+    var ALLY_LINE = {
+      top: function () { return [grid[0][0], grid[0][1], grid[0][2]]; },
+      bottom: function () { return [grid[2][0], grid[2][1], grid[2][2]]; },
+      left: function () { return [grid[0][0], grid[1][0], grid[2][0]]; },
+      right: function () { return [grid[0][2], grid[1][2], grid[2][2]]; }
+    };
+    function enemyTarget(area) {
+      var cells;
+      if (area.key === 'boss') cells = [grid[0][0], grid[0][1], grid[0][2], grid[1][0], grid[1][1], grid[1][2]]; // 상단+중앙 행
+      else cells = ALLY_LINE[area.key]();
+      var living = cells.map(function (id) { return heroes[id]; }).filter(function (h) { return h.alive; });
+      return living.length ? lowestRatio(living) : null;
+    }
+    function enemyAct(area) {
+      var t = enemyTarget(area); area.targetId = t ? t.id : null;
+      if (!t) { pushEvent({ type: 'miss', key: area.key }); area.gauge = 0; return; }
+      damageHero(t, area.dmg, area.key); pushEvent({ type: 'enemyHit', key: area.key, id: t.id }); area.gauge = 0;
+    }
+    function refreshPreviews() {
+      ['top', 'right', 'bottom', 'left', 'boss'].forEach(function (key) {
+        var e = enemies[key]; if (!(e.active && e.alive)) { e.targetId = null; return; }
+        var t = enemyTarget(e); e.targetId = t ? t.id : null;
+      });
+    }
+
+    // ----- 게이지 0 처리(교환/회전 공용) -----
+    function zeroGauge(ids) {
+      ids.forEach(function (id) {
+        var h = heroes[id];
+        if (h.job === 'mage' && h.alive) state.stats.mageGaugeLost += h.gauge;
+        if (h.alive && h.job === 'rogue') h.shiftBonus = true;
+        h.gauge = 0; h.fx = { kind: 'shiftZero', until: state.time + 0.5 };
+      });
+    }
+
+    // ----- 행/열 전체 교환 -----
+    function swapColumns(c1, c2) { for (var r = 0; r < 3; r++) { var t = grid[r][c1]; grid[r][c1] = grid[r][c2]; grid[r][c2] = t; } }
+    function swapRows(r1, r2) { for (var c = 0; c < 3; c++) { var t = grid[r1][c]; grid[r1][c] = grid[r2][c]; grid[r2][c] = t; } }
+    function requestSwap(a, b) {
+      if (state.over) return { ok: false, reason: 'over' };
+      if (state.inputLock > 0) return { ok: false, reason: 'locked' };
+      if (!a || !b) return { ok: false, reason: 'empty' };
+      if (a.r === b.r && a.c === b.c) return { ok: false, reason: 'same' };
+      if (a.r === b.r) {
+        swapColumns(a.c, b.c); syncPositions();
+        zeroGauge([grid[0][a.c], grid[1][a.c], grid[2][a.c], grid[0][b.c], grid[1][b.c], grid[2][b.c]]);
+        state.stats.colSwaps++; state.inputLock = CFG.SHIFT_LOCK;
+        logLine('열 교환 · 6명 게이지 손실'); pushEvent({ type: 'swap', dir: 'col', i: a.c, j: b.c }); refreshPreviews();
+        return { ok: true, type: 'col' };
+      }
+      if (a.c === b.c) {
+        swapRows(a.r, b.r); syncPositions();
+        zeroGauge([grid[a.r][0], grid[a.r][1], grid[a.r][2], grid[b.r][0], grid[b.r][1], grid[b.r][2]]);
+        state.stats.rowSwaps++; state.inputLock = CFG.SHIFT_LOCK;
+        logLine('행 교환 · 6명 게이지 손실'); pushEvent({ type: 'swap', dir: 'row', i: a.r, j: b.r }); refreshPreviews();
+        return { ok: true, type: 'row' };
+      }
+      return { ok: false, reason: 'diagonal' };
+    }
+
+    // ----- 2×2 회전 (원탭 · 시계방향 고정 · 1초 쿨타임) -----
+    function requestRotate(blockKey) {
+      if (state.over) return { ok: false, reason: 'over' };
+      if (state.rotLock > 0) { state.stats.rotCooldownBlocked++; pushEvent({ type: 'rotWait', block: blockKey }); return { ok: false, reason: 'cooldown' }; }
+      if (state.inputLock > 0) return { ok: false, reason: 'locked' };
+      var blk = ROT_BLOCKS[blockKey]; if (!blk) return { ok: false, reason: 'noblock' };
+      var tl = blk[0], tr = blk[1], bl = blk[2], br = blk[3];
+      var idTL = grid[tl[0]][tl[1]], idTR = grid[tr[0]][tr[1]], idBL = grid[bl[0]][bl[1]], idBR = grid[br[0]][br[1]];
+      // 시계방향 고정: tl→tr→br→bl→tl  (예 A B / C D → C A / D B)
+      grid[tr[0]][tr[1]] = idTL; grid[br[0]][br[1]] = idTR; grid[bl[0]][bl[1]] = idBR; grid[tl[0]][tl[1]] = idBL;
+      syncPositions();
+      [idTL, idTR, idBL, idBR].forEach(function (id) { var h = heroes[id]; if (h.alive) state.stats.rotGaugeLost += h.gauge; });
+      zeroGauge([idTL, idTR, idBL, idBR]);
+      state.stats.rotations++; state.rotLock = CFG.ROT_COOLDOWN;
+      logLine('4인 회전 · 게이지 손실'); pushEvent({ type: 'rotate', block: blockKey, dir: 'cw' }); refreshPreviews();
+      return { ok: true, block: blockKey, dir: 'cw' };
+    }
+
+    // ----- 서랍 -----
+    function useCardInsert(cardIdx, r, c) {
+      if (state.over) return { ok: false };
+      if (cardIdx < 0 || cardIdx >= state.drawer.length) return { ok: false, reason: 'nocard' };
+      var occ = heroes[grid[r][c]];
+      if (!occ || occ.alive) return { ok: false, reason: 'notdown' };
+      var job = state.drawer[cardIdx].job;
+      var nh = mkHero(job, 1); nh.hp = Math.round(nh.maxHp * CFG.NEW_HERO_HP); nh.gauge = 0;
+      delete heroes[occ.id]; heroes[nh.id] = nh; grid[r][c] = nh.id; nh.row = r; nh.col = c;
+      state.drawer.splice(cardIdx, 1); state.stats.cardsUsed++;
+      logLine(jobName(job) + ' 투입(기절 칸)'); pushEvent({ type: 'insert', id: nh.id, job: job });
+      return { ok: true, kind: 'insert' };
+    }
+    function useCardStar(cardIdx, r, c) {
+      if (state.over) return { ok: false };
+      if (cardIdx < 0 || cardIdx >= state.drawer.length) return { ok: false, reason: 'nocard' };
+      var occ = heroes[grid[r][c]];
+      if (!occ || !occ.alive) return { ok: false, reason: 'dead' };
+      if (occ.job !== state.drawer[cardIdx].job) return { ok: false, reason: 'jobmismatch' };
+      if (occ.star >= 2) return { ok: false, reason: 'maxstar' };
+      var oldMax = occ.maxHp; occ.star = 2; occ.maxHp = Math.round(CFG.HP[occ.job] * CFG.STAR2_MULT); occ.hp += (occ.maxHp - oldMax);
+      state.drawer.splice(cardIdx, 1); state.stats.cardsUsed++; state.stats.starUps++;
+      logLine(jobName(occ.job) + ' ★2 성급'); pushEvent({ type: 'starup', id: occ.id, job: occ.job });
+      return { ok: true, kind: 'star' };
+    }
+    function useCardOn(cardIdx, r, c) {
+      if (cardIdx < 0 || cardIdx >= state.drawer.length) return { ok: false, reason: 'nocard' };
+      var occ = heroes[grid[r][c]]; if (!occ) return { ok: false };
+      return occ.alive ? useCardStar(cardIdx, r, c) : useCardInsert(cardIdx, r, c);
+    }
+
+    function checkEnd() {
+      if (state.over) return;
+      if (state.phase === 'boss' && enemies.boss.spawned && !enemies.boss.alive) { state.over = 'win'; logLine('승리'); }
+      else if (allDown()) { state.over = 'lose'; logLine('전멸'); }
+      else if (state.time >= CFG.MAX_TIME) { state.over = 'timeout'; logLine('시간 초과'); }
+    }
+
+    function tick(dt) {
+      if (state.over) return;
+      state.time += dt;
+      if (state.inputLock > 0) state.inputLock = Math.max(0, state.inputLock - dt);
+      if (state.rotLock > 0) state.rotLock = Math.max(0, state.rotLock - dt);
+
+      var ids = Object.keys(heroes);
+      for (var i = 0; i < ids.length; i++) { var h = heroes[ids[i]]; if (!h.alive) continue; h.gauge += h.rate * dt; if (h.gauge >= 100) { h.gauge = 100; heroAct(h); } }
+      ['top', 'right', 'bottom', 'left', 'boss'].forEach(function (key) { var e = enemies[key]; if (!(e.active && e.alive)) return; e.gauge += e.rate * dt; if (e.gauge >= 100) { e.gauge = 100; enemyAct(e); } });
+
+      refreshPreviews(); checkEnd();
+    }
+
+    spawnWave(1);
+    refreshPreviews();
+
+    return {
+      state: state, cfg: CFG, tick: tick,
+      requestSwap: requestSwap, requestRotate: requestRotate,
+      useCardInsert: useCardInsert, useCardStar: useCardStar, useCardOn: useCardOn,
+      posOf: function (id) { return { r: heroes[id].row, c: heroes[id].col }; },
+      heroAt: function (r, c) { return heroes[grid[r][c]]; },
+      isMelee: function (id) { var j = heroes[id].job; return j === 'warrior' || j === 'rogue'; },
+      attackableNow: function (id) { var h = heroes[id]; if (h.job === 'warrior' || h.job === 'rogue') return adjacentAreas(h).map(function (e) { return e.key; }); return activeAliveAreas().map(function (e) { return e.key; }); },
+      blockCells: function (key) { return ROT_BLOCKS[key]; },
+      nextIsBoss: function () { return state.waveNum >= CFG.TOTAL_WAVES; }
+    };
+  }
+
+  // ===================================================================
+  //  헤드리스 시뮬레이터
+  // ===================================================================
+  function priestOffCenter(g) {
+    var center = g.heroAt(1, 1);
+    if (center && center.alive && center.job === 'priest') return null;
+    for (var id in g.state.heroes) { var h = g.state.heroes[id]; if (h.job === 'priest' && h.alive && !(h.row === 1 && h.col === 1)) return h; }
+    return null;
+  }
+  // 사제 위치 → 중앙으로 가는 시계방향 2×2 회전 (코너는 시계 1회로 먼저 변으로)
+  var ROT_TO_CENTER = {
+    '0,1': 'TL', '1,2': 'TR', '1,0': 'BL', '2,1': 'BR',
+    '0,0': 'TL', '0,2': 'TR', '2,0': 'BL', '2,2': 'BR'
+  };
+
+  var POLICIES = {
+    none: function () { return null; },
+
+    // B. 행/열 교환으로 사제를 중앙 정렬
+    swapUse: function (g) {
+      var p = priestOffCenter(g); if (!p) return null;
+      if (p.row === 1 && p.col !== 1) return { kind: 'swap', a: { r: 1, c: p.col }, b: { r: 1, c: 1 } };
+      if (p.col === 1 && p.row !== 1) return { kind: 'swap', a: { r: p.row, c: 1 }, b: { r: 1, c: 1 } };
+      return { kind: 'swap', a: { r: p.row, c: p.col }, b: { r: p.row, c: 1 } };
+    },
+
+    // C. 원탭 2×2 회전으로 사제를 중앙 정렬(내부 섞기)
+    rotateUse: function (g) {
+      var p = priestOffCenter(g); if (!p) return null;
+      var block = ROT_TO_CENTER[p.row + ',' + p.col];
+      if (!block) return null;
+      return { kind: 'rotate', block: block };
+    },
+
+    // D. 과회전: 회전축을 계속 두드림(쿨타임이 1초마다로 제한)
+    overOp: function () { return { kind: 'rotate', block: 'TL' }; }
+  };
+
+  function simulate(policyName, opts) {
+    opts = opts || {};
+    var g = createGame({ seed: opts.seed != null ? opts.seed : 7, layout: opts.layout });
+    var policy = POLICIES[policyName] || POLICIES.none;
+    var useDrawer = !!opts.useDrawer;
+    var dt = 0.1, cooldown = 0, spam = policyName === 'overOp';
+
+    while (!g.state.over) {
+      if (cooldown > 0) cooldown -= dt;
+      if (g.state.inputLock <= 0 && (spam || cooldown <= 0)) {
+        var cmd = policy(g), res = null;
+        if (cmd && cmd.kind === 'swap') res = g.requestSwap(cmd.a, cmd.b);
+        else if (cmd && cmd.kind === 'rotate') res = g.requestRotate(cmd.block);
+        if (res && res.ok && !spam) cooldown = 1.6;
+      }
+      if (useDrawer && g.state.drawer.length) {
+        var used = false;
+        for (var r = 0; r < 3 && !used; r++) for (var c = 0; c < 3 && !used; c++) { if (!g.heroAt(r, c).alive) { if (g.useCardInsert(0, r, c).ok) used = true; } }
+        if (!used) {
+          var dr = g.state.drawer;
+          for (var ci = 0; ci < dr.length && !used; ci++) for (var rr = 0; rr < 3 && !used; rr++) for (var cc = 0; cc < 3 && !used; cc++) {
+            var hh = g.heroAt(rr, cc); if (hh.alive && hh.job === dr[ci].job && hh.star < 2) { if (g.useCardStar(ci, rr, cc).ok) used = true; }
+          }
+        }
+      }
+      g.tick(dt);
+    }
+    var s = g.state.stats;
+    return {
+      policy: policyName, outcome: g.state.over, time: +g.state.time.toFixed(1),
+      waveReached: g.state.waveNum, wavesKilled: s.wavesKilled,
+      rowSwaps: s.rowSwaps, colSwaps: s.colSwaps, rotations: s.rotations,
+      rotCooldownBlocked: s.rotCooldownBlocked, rotGaugeLost: Math.round(s.rotGaugeLost),
+      priestDamage: Math.round(s.priestDamage), priestHeal: Math.round(s.priestHeal),
+      meleeNoTarget: s.meleeNoTarget, mageGaugeLost: Math.round(s.mageGaugeLost),
+      deadHeroes: s.deadHeroes.slice(),
+      cardsAcquired: s.cardsAcquired, cardsUsed: s.cardsUsed, starUps: s.starUps,
+      bossSpawnTime: s.bossSpawnTime, bossHpLeft: Math.round(g.state.enemies.boss.hp)
+    };
+  }
+
+  var API = { createGame: createGame, simulate: simulate, POLICIES: POLICIES, jobName: jobName, dirName: dirName, CFG: CFG, DEFAULT_LAYOUT: DEFAULT_LAYOUT, JOBS: JOBS, ROT_BLOCKS: ROT_BLOCKS, BLOCK_KEYS: BLOCK_KEYS };
+  if (typeof module !== 'undefined' && module.exports) module.exports = API;
+  root.FSL4 = API;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+/* =====================================================================
+   UI 레이어 — window.FSL4 (Lab 04)
+   행/열 교환(영웅 탭) · 2×2 원탭 회전(기어 탭 → 즉시 시계방향) · 웨이브 · 서랍
+   ===================================================================== */
+(function () {
+  'use strict';
+  var FSL = window.FSL4;
+  var ROLE = { warrior: '전사', rogue: '도적', archer: '궁수', mage: '마법사', priest: '사제' };
+  var DIRNAME = { top: '상단', right: '우측', bottom: '하단', left: '좌측', boss: '보스' };
+  var PIVOTS = [['tl', 'TL'], ['tr', 'TR'], ['bl', 'BL'], ['br', 'BR']];
+
+  // refs
+  var grid = document.getElementById('grid');
+  var pivotsWrap = null;
+  var waveEl = document.getElementById('wave');
+  var wavedirsEl = document.getElementById('wavedirs');
+  var nextpill = document.getElementById('nextpill');
+  var cardsEl = document.getElementById('cards');
+  var logEl = document.getElementById('log');
+  var debugEl = document.getElementById('debug');
+  var overlay = document.getElementById('overlay');
+  var ovRes = document.getElementById('ovRes');
+  var ovSub = document.getElementById('ovSub');
+  var bossBanner = document.getElementById('bossbanner');
+
+  function avatarHTML(job) {
+    switch (job) {
+      case 'warrior': return '<i class="shield"></i><i class="cross-v"></i><i class="cross-h"></i>';
+      case 'rogue': return '<i class="hood"></i><i class="face"></i><i class="dagger"></i>';
+      case 'archer': return '<i class="bow"></i><i class="string"></i><i class="arrow"></i>';
+      case 'mage': return '<i class="hat"></i><i class="brim"></i><i class="orb"></i>';
+      case 'priest': return '<i class="halo"></i><i class="robe"></i><i class="cv"></i><i class="ch"></i>';
+    }
+    return '';
+  }
+  var TOPMOB_HTML = '<span class="m"></span><span class="m"></span><span class="m"></span>';
+  var BOSS_HTML = '<span class="horn l"></span><span class="horn r"></span><span class="head"></span><span class="eye l"></span><span class="eye r"></span><span class="mouth"></span>';
+  var FANG_HTML = '<span class="eye2 a"></span><span class="eye2 b"></span><span class="chev"></span>';
+
+  // state
+  var game = null, mode = null, selected = null, selCard = null;
+  var lastEvt = 0, paused = false, speed = 1, lastTs = 0;
+  var cellTiles = [[], [], []], areaEls = {}, pivotEls = {};
+
+  function buildBoard() {
+    grid.innerHTML = '';
+    var frame = document.createElement('div'); frame.id = 'coreframe'; grid.appendChild(frame);
+
+    function makeArea(key, label) {
+      var el = document.createElement('div'); el.className = 'area'; el.id = 'area-' + key;
+      el.innerHTML = '<div class="ehp"><div class="ehpf"></div></div><div class="elabel">' + label + '</div><div class="facewrap"></div><div class="eg"><div class="egf"></div></div>';
+      grid.appendChild(el);
+      areaEls[key] = { root: el, ehpf: el.querySelector('.ehpf'), egf: el.querySelector('.egf'), face: el.querySelector('.facewrap'), label: el.querySelector('.elabel'), mode: '' };
+    }
+    makeArea('top', '상단'); makeArea('left', '좌측'); makeArea('right', '우측'); makeArea('bottom', '하단');
+
+    for (var r = 0; r < 3; r++) for (var c = 0; c < 3; c++) {
+      var t = document.createElement('div'); t.className = 'tile'; t.style.gridRow = (4 + r); t.style.gridColumn = (2 + c);
+      t.innerHTML = '<span class="role"></span><span class="star">★2</span><span class="cros"></span><div class="ava"></div><span class="badge">대기</span><div class="downmark">✕</div><div class="hpbar"><div class="hpfill"></div></div><div class="gauge"><div class="gfill"></div></div>';
+      (function (rr, cc) { t.addEventListener('click', function () { onCellTap(rr, cc); }); })(r, c);
+      grid.appendChild(t); cellTiles[r][c] = t;
+    }
+
+    // 회전축 오버레이
+    pivotsWrap = document.createElement('div'); pivotsWrap.id = 'pivots';
+    PIVOTS.forEach(function (p) {
+      var pv = document.createElement('div'); pv.className = 'pivot ' + p[0]; pv.textContent = '↻';
+      (function (key) { pv.addEventListener('click', function () { onPivotTap(key); }); })(p[1]);
+      pivotsWrap.appendChild(pv); pivotEls[p[1]] = pv;
+    });
+    grid.appendChild(pivotsWrap);
+  }
+
+  function newGame() {
+    game = FSL.createGame({ seed: (Math.random() * 1e9) | 0, layout: FSL.DEFAULT_LAYOUT });
+    mode = null; selected = null; selCard = null; lastEvt = 0; paused = false;
+    overlay.classList.remove('show'); bossBanner.classList.remove('show');
+    document.getElementById('btnPause').textContent = '일시정지'; document.getElementById('btnPause').classList.remove('on');
+    areaEls.top.mode = ''; areaEls.left.mode = ''; areaEls.right.mode = ''; areaEls.bottom.mode = '';
+    for (var r = 0; r < 3; r++) for (var c = 0; c < 3; c++) {
+      var h = game.heroAt(r, c), t = cellTiles[r][c];
+      t.className = 'tile job-' + h.job; t.querySelector('.role').textContent = ROLE[h.job];
+      var av = t.querySelector('.ava'); av.className = 'ava ava-' + h.job; av.innerHTML = avatarHTML(h.job); t.dataset.id = h.id;
+    }
+    renderCards(); render();
+    log('전투 시작 — 웨이브 1. 처치하면 즉시 다음 웨이브, 10웨이브 뒤 보스.');
+  }
+
+  // ---------- 입력 ----------
+  function onCellTap(r, c) {
+    if (game.state.over) return;
+    if (mode === 'card') {
+      var res = game.useCardOn(selCard, r, c);
+      if (res.ok) { selCard = null; mode = null; renderCards(); render(); }
+      else flashShake(r, c);
+      return;
+    }
+    // 교환 모드
+    if (!selected) { selected = { r: r, c: c }; mode = 'hero'; render(); return; }
+    if (selected.r === r && selected.c === c) { selected = null; mode = null; render(); return; }
+    var sameRow = selected.r === r, sameCol = selected.c === c;
+    if (sameRow || sameCol) {
+      var sw = game.requestSwap(selected, { r: r, c: c });
+      if (sw.ok) { selected = null; mode = null; }
+      else if (sw.reason === 'locked') flashShake(r, c);
+      else selected = { r: r, c: c };
+      render();
+    } else { selected = { r: r, c: c }; render(); }
+  }
+  // 원탭: 회전축 탭 → 즉시 시계방향 1회전 (방향 선택 없음)
+  function onPivotTap(key) {
+    if (game.state.over) return;
+    selected = null; selCard = null; mode = null;
+    var res = game.requestRotate(key);
+    if (!res.ok && res.reason === 'cooldown') toastLine('회전 대기');
+    render();
+  }
+  function onCardTap(idx) {
+    if (game.state.over) return;
+    if (idx >= game.state.drawer.length) return;
+    selected = null;
+    if (mode === 'card' && selCard === idx) { selCard = null; mode = null; }
+    else { selCard = idx; mode = 'card'; }
+    renderCards(); render();
+  }
+  function flashShake(r, c) { var t = cellTiles[r][c]; t.classList.add('shake'); setTimeout(function () { t.classList.remove('shake'); }, 260); }
+
+  // ---------- 카드 ----------
+  function renderCards() {
+    var dr = game.state.drawer; cardsEl.innerHTML = '';
+    for (var i = 0; i < 3; i++) {
+      var slot = document.createElement('div');
+      if (i < dr.length) {
+        var job = dr[i].job;
+        slot.className = 'cardslot card job-' + job + (mode === 'card' && selCard === i ? ' sel' : '');
+        slot.innerHTML = '<div class="inner"><div class="cava ava ava-' + job + '">' + avatarHTML(job) + '</div><div class="cname">' + ROLE[job] + ' ★1</div></div>';
+        (function (idx) { slot.addEventListener('click', function () { onCardTap(idx); }); })(i);
+      } else slot.className = 'cardslot empty';
+      cardsEl.appendChild(slot);
+    }
+  }
+
+  // ---------- 렌더 ----------
+  function render() {
+    var s = game.state, en = s.enemies;
+    var cardJob = (mode === 'card' && s.drawer[selCard]) ? s.drawer[selCard].job : null;
+
+    for (var r = 0; r < 3; r++) for (var c = 0; c < 3; c++) {
+      var h = game.heroAt(r, c), t = cellTiles[r][c];
+      if (t.dataset.id !== h.id) {
+        t.dataset.id = h.id; t.querySelector('.role').textContent = ROLE[h.job];
+        var av = t.querySelector('.ava'); av.className = 'ava ava-' + h.job; av.innerHTML = avatarHTML(h.job);
+      }
+      var cls = 'tile job-' + h.job;
+      if (h.star === 2) cls += ' s2';
+      if (!h.alive) cls += ' down';
+      t.className = cls;
+
+      if (mode === 'card') { if ((!h.alive) || (h.alive && h.job === cardJob && h.star < 2)) t.classList.add('cardtarget'); }
+      else if (mode === 'hero' && selected) {
+        if (selected.r === r && selected.c === c) t.classList.add('sel');
+        else if (selected.r === r) t.classList.add('cand-col');
+        else if (selected.c === c) t.classList.add('cand-row');
+      }
+      if (h.alive && h.job === 'rogue' && h.shiftBonus) t.classList.add('bonus');
+      if (h.alive && game.isMelee(h.id)) t.classList.add(game.attackableNow(h.id).length ? 'cango' : 'notarget');
+      else if (h.alive) t.classList.add('cango');
+
+      var targeted = false;
+      ['top', 'right', 'bottom', 'left', 'boss'].forEach(function (k) { var e = en[k]; if (e.active && e.alive && e.gauge >= 70 && e.targetId === h.id) targeted = true; });
+      if (targeted && h.alive) t.classList.add('targeted');
+
+      var hpf = t.querySelector('.hpfill'), ratio = h.hp / h.maxHp;
+      hpf.style.width = (ratio * 100) + '%'; hpf.classList.toggle('low', ratio <= 0.35);
+      var gf = t.querySelector('.gfill'); gf.style.width = (h.alive ? h.gauge : 0) + '%'; gf.classList.toggle('full', h.gauge >= 100);
+    }
+
+    // 회전축 쿨타임 표시 (1초 동안 어둡게)
+    var cooling = s.rotLock > 0;
+    PIVOTS.forEach(function (p) { pivotEls[p[1]].classList.toggle('cooldown', cooling); });
+
+    // 적 영역
+    var bossOwns = en.boss.spawned;
+    renderArea('top', bossOwns ? en.boss : en.top, bossOwns ? 'boss' : 'mob', bossOwns ? 'BOSS' : '상단');
+    renderArea('left', en.left, 'fang', '좌측'); renderArea('right', en.right, 'fang', '우측'); renderArea('bottom', en.bottom, 'fang', '하단');
+
+    // 상태바
+    if (s.phase === 'boss') { waveEl.innerHTML = '<span>FINAL</span> BOSS'; wavedirsEl.textContent = '보스 교전'; nextpill.textContent = '최종'; nextpill.className = 'boss'; }
+    else {
+      waveEl.innerHTML = '<span>WAVE</span> ' + s.waveNum + '/' + game.cfg.TOTAL_WAVES;
+      wavedirsEl.textContent = s.activeDirs.map(function (d) { return DIRNAME[d]; }).join(' · ') + (s.waveNum >= 8 ? ' (강화)' : '');
+      if (game.nextIsBoss()) { nextpill.textContent = '다음: 보스'; nextpill.className = 'boss'; }
+      else { nextpill.textContent = '웨이브 진행'; nextpill.className = ''; }
+    }
+  }
+  function renderArea(key, e, faceMode, label) {
+    var ae = areaEls[key];
+    if (ae.mode !== faceMode) {
+      ae.mode = faceMode;
+      if (faceMode === 'boss') { ae.face.className = 'facewrap bossface'; ae.face.innerHTML = BOSS_HTML; }
+      else if (faceMode === 'mob') { ae.face.className = 'facewrap topmob'; ae.face.innerHTML = TOPMOB_HTML; }
+      else { ae.face.className = 'facewrap fang'; ae.face.innerHTML = FANG_HTML; }
+    }
+    ae.root.className = 'area';
+    if (key === 'top' && faceMode === 'boss') ae.root.classList.add('bossmode');
+    if (!e.active && !e.alive) ae.root.classList.add('empty');     // 이번 웨이브에 없음
+    else if (!e.alive) ae.root.classList.add('dead');
+    else { if (e.gauge >= 70) ae.root.classList.add('charging'); if (e.gauge >= 90) ae.root.classList.add('preview'); }
+    ae.ehpf.style.width = (e.maxHp ? (e.hp / e.maxHp * 100) : 0) + '%';
+    ae.egf.style.width = (e.active && e.alive ? e.gauge : 0) + '%';
+    ae.label.textContent = label;
+  }
+
+  // ---------- 이벤트 → 연출 ----------
+  function processEvents() {
+    var ev = game.state.events;
+    for (; lastEvt < ev.length; lastEvt++) {
+      var e = ev[lastEvt];
+      if (e.type === 'log') { log(e.msg); continue; }
+      if (e.type === 'swap') {
+        var idxs = e.dir === 'col' ? [[0, e.i], [1, e.i], [2, e.i], [0, e.j], [1, e.j], [2, e.j]] : [[e.i, 0], [e.i, 1], [e.i, 2], [e.j, 0], [e.j, 1], [e.j, 2]];
+        idxs.forEach(function (p) { var t = cellTiles[p[0]][p[1]]; t.classList.remove('flash'); void t.offsetWidth; t.classList.add('flash'); });
+        toastLine((e.dir === 'col' ? '열' : '행') + ' 교환 · 6명 게이지 손실'); continue;
+      }
+      if (e.type === 'rotate') {
+        game.blockCells(e.block).forEach(function (p) { var t = cellTiles[p[0]][p[1]]; t.classList.remove('rflash'); void t.offsetWidth; t.classList.add('rflash'); });
+        var pv = pivotEls[e.block]; if (pv) { pv.classList.remove('spin'); void pv.offsetWidth; pv.classList.add('spin'); setTimeout((function (x) { return function () { x.classList.remove('spin'); }; })(pv), 520); }
+        toastLine('4인 회전 · 게이지 손실'); continue;
+      }
+      if (e.type === 'rotWait') { continue; }
+      if (e.type === 'dmgHero') { floatHero(e.id, '-' + e.dmg, 'dmg'); continue; }
+      if (e.type === 'heal') { if (e.amt > 0) floatHero(e.id, '+' + e.amt, 'heal'); continue; }
+      if (e.type === 'dmgArea') { floatArea(e.key, '-' + e.dmg, 'dmg'); continue; }
+      if (e.type === 'down') { floatHero(e.id, '기절', 'dmg', true); continue; }
+      if (e.type === 'areaDown') { floatArea(e.key, '격파', 'heal', true); continue; }
+      if (e.type === 'wave') { toastLine('웨이브 ' + e.n + ' — ' + e.dirs.map(function (d) { return DIRNAME[d]; }).join('·') + (e.enhanced ? ' 강화' : '')); continue; }
+      if (e.type === 'bossSpawn') { bossBanner.classList.remove('show'); void bossBanner.offsetWidth; bossBanner.classList.add('show'); toastLine('보스 등장'); continue; }
+      if (e.type === 'card') { toastLine(ROLE[e.job] + ' 카드 획득'); continue; }
+      if (e.type === 'insert') { floatHero(e.id, '투입', 'gold', true); continue; }
+      if (e.type === 'starup') { floatHero(e.id, '★2', 'gold', true); continue; }
+    }
+  }
+  function floatHero(id, txt, kind, big) { var h = game.state.heroes[id]; if (!h) return; spawnFloat(cellTiles[h.row][h.col], txt, kind, big); }
+  function floatArea(key, txt, kind, big) { var slot = (key === 'boss') ? areaEls.top : areaEls[key]; if (slot) spawnFloat(slot.root, txt, kind, big); }
+  function spawnFloat(host, txt, kind, big) {
+    var f = document.createElement('div'); f.className = 'floater ' + kind + (big ? ' big' : ''); f.textContent = txt; f.style.left = (30 + Math.random() * 40) + '%';
+    host.appendChild(f); setTimeout(function () { if (f.parentNode) f.parentNode.removeChild(f); }, 850);
+  }
+
+  // ---------- 로그/토스트 ----------
+  var logLines = [];
+  function log(msg) { logLines.push(msg); if (logLines.length > 2) logLines.shift(); logEl.innerHTML = logLines.map(function (m) { return '› ' + m; }).join('<br>'); }
+  var toastTimer = null;
+  function toastLine(msg) {
+    logEl.innerHTML = '<b>⟳ ' + msg + '</b>' + (logLines.length ? '<br>› ' + logLines[logLines.length - 1] : '');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { logEl.innerHTML = logLines.map(function (m) { return '› ' + m; }).join('<br>'); }, 800);
+  }
+
+  // ---------- 디버그 ----------
+  function renderDebug() {
+    if (!debugEl.classList.contains('show')) return;
+    var s = game.state, st = s.stats, en = s.enemies, living = 0;
+    for (var id in s.heroes) if (s.heroes[id].alive) living++;
+    debugEl.textContent =
+      't=' + s.time.toFixed(1) + 's  ' + (s.phase === 'boss' ? 'BOSS' : '웨이브 ' + s.waveNum + '/10') + '  결과=' + (s.over || '진행중') + '  생존=' + living + '/9\n' +
+      '행교환=' + st.rowSwaps + ' 열교환=' + st.colSwaps + ' 회전=' + st.rotations + ' (쿨중차단 ' + st.rotCooldownBlocked + ', 회전손실게이지 ' + Math.round(st.rotGaugeLost) + ')\n' +
+      '근접공격불가=' + st.meleeNoTarget + ' 마법손실=' + Math.round(st.mageGaugeLost) + '  사제피해=' + Math.round(st.priestDamage) + ' 사제힐=' + Math.round(st.priestHeal) + '\n' +
+      '카드 획득=' + st.cardsAcquired + ' 사용=' + st.cardsUsed + ' 성급=' + st.starUps + '  웨이브처치=' + st.wavesKilled + '/10  보스등장=' + (st.bossSpawnTime != null ? st.bossSpawnTime + 's' : '-') + '  보스HP=' + Math.round(en.boss.hp);
+  }
+
+  // ---------- 루프 ----------
+  function loop(ts) {
+    if (!lastTs) lastTs = ts;
+    var dt = (ts - lastTs) / 1000; lastTs = ts;
+    if (dt > 0.05) dt = 0.05;
+    if (!paused && !game.state.over) { game.tick(dt * speed); processEvents(); }
+    render(); renderDebug();
+    if (game.state.over && !overlay.classList.contains('show')) showResult();
+    requestAnimationFrame(loop);
+  }
+  function showResult() {
+    var s = game.state, st = s.stats, win = s.over === 'win';
+    ovRes.textContent = win ? '승 리' : (s.over === 'timeout' ? '시간 초과' : '전 멸');
+    ovRes.className = 'res ' + (win ? 'win' : 'lose');
+    ovSub.innerHTML =
+      '전투 ' + s.time.toFixed(1) + '초 · 웨이브 ' + st.wavesKilled + '/10 · 보스 ' + (st.bossSpawnTime != null ? st.bossSpawnTime + 's' : '미등장') + '<br>' +
+      '행 교환 ' + st.rowSwaps + ' / 열 교환 ' + st.colSwaps + ' / 2×2 회전 ' + st.rotations + '<br>' +
+      '카드 획득 ' + st.cardsAcquired + ' · 투입 ' + st.cardsUsed + ' · 성급 ' + st.starUps + ' · 사망 ' + st.deadHeroes.length + '<br>' +
+      '근접 공격불가 ' + st.meleeNoTarget + '회 · 사제 회복 ' + Math.round(st.priestHeal);
+    overlay.classList.add('show');
+  }
+
+  // ---------- 컨트롤 ----------
+  document.getElementById('btnRestart').addEventListener('click', newGame);
+  document.getElementById('ovBtn').addEventListener('click', newGame);
+  document.getElementById('btnPause').addEventListener('click', function () { paused = !paused; this.textContent = paused ? '재개' : '일시정지'; this.classList.toggle('on', paused); });
+  document.getElementById('btnSpeed').addEventListener('click', function () { speed = speed === 1 ? 2 : (speed === 2 ? 3 : 1); this.textContent = speed + '×'; this.classList.toggle('on', speed !== 1); });
+  document.getElementById('debugToggle').addEventListener('click', function () { debugEl.classList.toggle('show'); this.textContent = debugEl.classList.contains('show') ? '디버그 ▴' : '디버그 ▾'; renderDebug(); });
+
+  buildBoard(); newGame(); requestAnimationFrame(loop);
+})();
+
+</script>
+</body>
+</html>
